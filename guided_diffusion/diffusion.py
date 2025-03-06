@@ -7,13 +7,12 @@ import numpy as np
 import tqdm
 import torch
 import torch.utils.data as data
-import wandb 
+
 from datasets import get_dataset, data_transform, inverse_data_transform
 from functions.ckpt_util import get_ckpt_path, download
 from functions.svd_ddnm import ddnm_diffusion, ddnm_plus_diffusion
 
 import torchvision.utils as tvu
-from torchmetrics.image import StructuralSimilarityIndexMeasure, FrechetInceptionDistance
 
 from guided_diffusion.models import Model
 from guided_diffusion.script_util import create_model, create_classifier, classifier_defaults, args_to_dict
@@ -136,9 +135,7 @@ class Diffusion(object):
                              ckpt)
             else:
                 raise ValueError
-
-            ckpt = torch.load(ckpt, map_location=self.device, weights_only=False)
-            model.load_state_dict(ckpt)
+            model.load_state_dict(torch.load(ckpt, map_location=self.device))
             model.to(self.device)
             model = torch.nn.DataParallel(model)
 
@@ -161,7 +158,7 @@ class Diffusion(object):
                         'https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt',
                         ckpt)
 
-            model.load_state_dict(torch.load(ckpt, map_location=self.device, weights_only=False))
+            model.load_state_dict(torch.load(ckpt, map_location=self.device))
             model.to(self.device)
             model.eval()
             model = torch.nn.DataParallel(model)
@@ -213,8 +210,6 @@ class Diffusion(object):
             
     def simplified_ddnm_plus(self, model, cls_fn):
         args, config = self.args, self.config
-
-        wandb.init(project='image-restoration',name='ddnm')
 
         dataset, test_dataset = get_dataset(args, config)
 
@@ -300,16 +295,9 @@ class Diffusion(object):
         sigma_y = args.sigma_y
         
         print(f'Start from {args.subset_start}')
-
-        ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(self.device)
-        fid = FrechetInceptionDistance(feature=2048).to(self.device)
-
-        
         idx_init = args.subset_start
         idx_so_far = args.subset_start
         avg_psnr = 0.0
-        avg_ssim = 0.0
-
         pbar = tqdm.tqdm(val_loader)
         for x_orig, classes in pbar:
             x_orig = x_orig.to(self.device)
@@ -418,26 +406,13 @@ class Diffusion(object):
             psnr = 10 * torch.log10(1 / mse)
             avg_psnr += psnr
 
-            ssim = ssim_metric(x.unsqueeze(0), orig.unsqueeze(0))
-            avg_ssim += ssim.item()
-
-            fid.update(x.unsqueeze(0), real=False)
-            fid.update(orig.unsqueeze(0), real=True)
-            
             idx_so_far += y.shape[0]
 
             pbar.set_description("PSNR: %.2f" % (avg_psnr / (idx_so_far - idx_init)))
 
-            wandb.log({"PSNR": psnr.item(), "SSIM": ssim.item()})
-
         avg_psnr = avg_psnr / (idx_so_far - idx_init)
-        avg_ssim = avg_ssim / (idx_so_far - idx_init)
         print("Total Average PSNR: %.2f" % avg_psnr)
-        fid_score = fid.compute()
         print("Number of samples: %d" % (idx_so_far - idx_init))
-
-        wandb.log({"Avg PSNR": avg_psnr, "Avg SSIM": avg_ssim, "FID": fid_score.item()})
-        wandb.finish()
         
         
 
