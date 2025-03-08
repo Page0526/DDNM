@@ -448,7 +448,21 @@ class Diffusion(object):
 
     def svd_based_ddnm_plus(self, model, cls_fn):
         args, config = self.args, self.config
-        wandb.init(project='image-restoration',tags='ddnm_svd')
+        deg = args.deg
+        if deg == 'inpainting':
+            tag = 'inpainting'
+        elif deg == 'sr_bicubic':
+            tag = 'sr_bicubic'
+        elif deg == 'sr_averagepooling':
+            tag = 'sr_averagepooling'
+        elif deg == 'deblur_gauss':
+            tag = 'deblur_gauss'
+        elif deg == 'colorization':
+            tag = 'colorization'
+        elif deg == 'cs_walshhadamard':
+            tag = 'cs_walshhadamard'
+
+        wandb.init(project='image-restoration',tags={'ddnm_svd', tag})
         dataset, test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
@@ -479,7 +493,7 @@ class Diffusion(object):
         )
 
         # get degradation matrix
-        deg = args.deg
+        
         A_funcs = None
         if deg == 'cs_walshhadamard':
             compress_by = round(1/args.deg_scale)
@@ -580,12 +594,14 @@ class Diffusion(object):
                 hw = hwc / 3
                 h = w = int(hw ** 0.5)
                 y = y.reshape((b, 3, h, w))
-                degraded = y
                 
             if self.args.add_noise: # for denoising test
                 y = get_gaussian_noisy_img(y, sigma_y) 
             
             y = y.reshape((b, hwc))
+
+            hw = hwc/3
+            degraded = y.reshape(3, int(hw ** 0.5), int(hw ** 0.5))
             
 
             Apy = A_funcs.A_pinv(y).view(y.shape[0], config.data.channels, self.config.data.image_size,
@@ -646,20 +662,19 @@ class Diffusion(object):
                 degraded = F.interpolate(degraded, size=(256, 256), mode="bilinear", align_corners=False)
                 degraded = torch.clamp((degraded + 1) / 2, 0, 1)
                 img_grid = make_grid([orig, x[0].squeeze(0).to(self.device), degraded.squeeze(0)], nrow=3, normalize=False)
-                wandb.log({"Image Comparison": [wandb.Image(img_grid, caption="Original vs Restored vs Degraded")]})
-                wandb.log({"PSNR": psnr.item(), "SSIM": ssim.item()})
+                
 
             idx_so_far += y.shape[0]
-
+            wandb.log({"Image Comparison": [wandb.Image(img_grid, caption="Original vs Restored vs Degraded")]})
+            wandb.log({"PSNR": psnr.item(), "SSIM": ssim.item()})
             pbar.set_description("PSNR: %.2f" % (avg_psnr / (idx_so_far - idx_init)))
 
         avg_psnr = avg_psnr / (idx_so_far - idx_init)
         avg_ssim = avg_ssim / (idx_so_far - idx_init)
-        fid.compute()
         print("Total Average PSNR: %.2f" % avg_psnr)
         print("Number of samples: %d" % (idx_so_far - idx_init))
 
-        wandb.log({"Avg PSNR": avg_psnr, "Avg SSIM": avg_ssim, "FID": fid.item()})
+        wandb.log({"Avg PSNR": avg_psnr, "Avg SSIM": avg_ssim, "FID": fid.compute().item()})
         wandb.finish()
 
 # Code form RePaint   
