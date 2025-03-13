@@ -16,7 +16,6 @@ import torch.nn.functional as F
 import torchvision.utils as tvu
 from torchmetrics.image import StructuralSimilarityIndexMeasure
 from torchmetrics.image.fid import FrechetInceptionDistance
-
 from guided_diffusion.models import Model
 from guided_diffusion.script_util import create_model, create_classifier, classifier_defaults, args_to_dict
 import random
@@ -43,7 +42,6 @@ def gray2color(x):
     coef=1/3
     base = coef**2 + coef**2 + coef**2
     return torch.stack((x*coef/base, x*coef/base, x*coef/base), 1)    
-
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -313,7 +311,9 @@ class Diffusion(object):
         avg_ssim = 0.0
 
         pbar = tqdm.tqdm(val_loader)
+        
         for x_orig, classes in pbar:
+
             x_orig = x_orig.to(self.device)
             x_orig = data_transform(self.config, x_orig)
 
@@ -444,8 +444,7 @@ class Diffusion(object):
         wandb.log({"Avg PSNR": avg_psnr, "Avg SSIM": avg_ssim, "FID": fid_score.item()})
         wandb.finish()
         
-        
-
+    
     def svd_based_ddnm_plus(self, model, cls_fn):
         args, config = self.args, self.config
         deg = args.deg
@@ -475,7 +474,9 @@ class Diffusion(object):
             args.subset_end = len(test_dataset)
 
         print(f'Dataset has size {len(test_dataset)}')
-
+        
+        
+        
         def seed_worker(worker_id):
             worker_seed = args.seed % 2 ** 32
             np.random.seed(worker_seed)
@@ -578,16 +579,21 @@ class Diffusion(object):
         avg_ssim = 0.0
         pbar = tqdm.tqdm(val_loader)
         for x_orig, classes in pbar:
+
             x_orig = x_orig.to(self.device)
             x_orig = data_transform(self.config, x_orig)
 
             y = A_funcs.A(x_orig)
+
             
             b, hwc = y.size()
             if 'color' in deg:
                 hw = hwc / 1
                 h = w = int(hw ** 0.5)
                 y = y.reshape((b, 1, h, w))
+
+                degraded = y
+
             elif 'inp' in deg or 'cs' in deg:
                 pass
             else:
@@ -601,7 +607,13 @@ class Diffusion(object):
             y = y.reshape((b, hwc))
 
             hw = hwc/3
-            degraded = y.reshape(3, int(hw ** 0.5), int(hw ** 0.5))
+
+            if tag == 'colorization':
+                pass
+            elif tag == 'inpainting':
+                pass
+            else:
+                degraded = y.reshape(b, 3, int(hw ** 0.5), int(hw ** 0.5))
             
 
             Apy = A_funcs.A_pinv(y).view(y.shape[0], config.data.channels, self.config.data.image_size,
@@ -659,13 +671,20 @@ class Diffusion(object):
                 fid.update((x[0] * 255).clamp(0, 255).byte().to(self.device), real=False)
                 fid.update((orig * 255).clamp(0 ,255).byte().unsqueeze(0), real=True)
 
-                degraded = F.interpolate(degraded, size=(256, 256), mode="bilinear", align_corners=False)
-                degraded = torch.clamp((degraded + 1) / 2, 0, 1)
-                img_grid = make_grid([orig, x[0].squeeze(0).to(self.device), degraded.squeeze(0)], nrow=3, normalize=False)
-                
+                if tag != 'inpainting':
+                    degraded = F.interpolate(degraded, size=(256, 256), mode="bilinear", align_corners=False)
+                    degraded = torch.clamp((degraded + 1) / 2, 0, 1)
+
+                    if degraded.shape[1] == 1:
+                        degraded = degraded.repeat(1, 3, 1, 1)
+
+                    img_grid = make_grid([orig, x[0].squeeze(0).to(self.device), degraded.squeeze(0)], nrow=3, normalize=False)
+                    wandb.log({"Image Comparison": [wandb.Image(img_grid, caption="Original vs Restored vs Degraded")]})
+                else:
+                    img_grid = make_grid([orig, x[0].squeeze(0).to(self.device)], nrow=2, normalize=False)
+                    wandb.log({"Image Comparison": [wandb.Image(img_grid, caption="Original vs Restored")]})
 
             idx_so_far += y.shape[0]
-            wandb.log({"Image Comparison": [wandb.Image(img_grid, caption="Original vs Restored vs Degraded")]})
             wandb.log({"PSNR": psnr.item(), "SSIM": ssim.item()})
             pbar.set_description("PSNR: %.2f" % (avg_psnr / (idx_so_far - idx_init)))
 

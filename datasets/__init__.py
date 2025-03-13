@@ -10,6 +10,7 @@ import numpy as np
 import torchvision
 from PIL import Image
 from functools import partial
+from datasets.vision import VisionDataset
 
 class Crop(object):
     def __init__(self, x1, x2, y1, y2):
@@ -187,8 +188,68 @@ def get_dataset(args, config):
                 transforms.ToTensor()])
             )
             test_dataset = dataset
-    else:
-        dataset, test_dataset = None, None
+            
+    elif config.data.dataset == "BSDS100":
+        if config.data.out_of_dist:
+            dataset = torchvision.datasets.DatasetFolder(
+                os.path.join(args.exp, "datasets", "bsds100"),
+                loader = Image.open,
+                transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+                                              transforms.ToTensor()])
+            )
+            test_dataset = dataset
+        else:
+            dataset = torchvision.datasets.ImageFolder(
+                os.path.join(args.exp, "datasets", args.path_y),#os.path.join(args.exp, "datasets", "celeba_hq"),
+                transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+                                              transforms.ToTensor()])
+            )
+            num_items = len(dataset)
+            indices = list(range(num_items))
+            random_state = np.random.get_state()
+            np.random.seed(2019)
+            np.random.shuffle(indices)
+            np.random.set_state(random_state)
+#             train_indices, test_indices = (
+#                 indices[: int(num_items * 0.9)],
+#                 indices[int(num_items * 0.9) :],
+#             )
+            train_indices, test_indices = (
+                indices[: int(num_items * 0.)],
+                indices[int(num_items * 0.) :],
+            )
+            test_dataset = Subset(dataset, test_indices)
+    
+    elif config.data.dataset == "Manga109":
+        if config.data.out_of_dist:
+            dataset = torchvision.datasets.DatasetFolder(
+                os.path.join(args.exp, "datasets", "manga109"),
+                loader = Image.open,
+                transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+                                              transforms.ToTensor()])
+            )
+            test_dataset = dataset
+        else:
+            dataset = torchvision.datasets.ImageFolder(
+                os.path.join(args.exp, "datasets", args.path_y),#os.path.join(args.exp, "datasets", "celeba_hq"),
+                transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+                                              transforms.ToTensor()])
+            )
+            num_items = len(dataset)
+            indices = list(range(num_items))
+            random_state = np.random.get_state()
+            np.random.seed(2019)
+            np.random.shuffle(indices)
+            np.random.set_state(random_state)
+#             train_indices, test_indices = (
+#                 indices[: int(num_items * 0.9)],
+#                 indices[int(num_items * 0.9) :],
+#             )
+            train_indices, test_indices = (
+                indices[: int(num_items * 0.)],
+                indices[int(num_items * 0.) :],
+            )
+            test_dataset = Subset(dataset, test_indices)
 
     return dataset, test_dataset
 
