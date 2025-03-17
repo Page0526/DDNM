@@ -4,4 +4,4 @@
 /env/
 /wandb/
 *.sh
-evaluation.sh
+.env
